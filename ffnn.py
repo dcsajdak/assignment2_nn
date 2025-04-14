@@ -10,6 +10,9 @@ import time
 from tqdm import tqdm
 import json
 from argparse import ArgumentParser
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 unk = '<UNK>'
@@ -119,7 +122,26 @@ if __name__ == "__main__":
     train_data, valid_data = load_data(args.train_data, args.val_data) # X_data is a list of pairs (document, y); y in {0,1,2,3,4}
     vocab = make_vocab(train_data)
     vocab, word2index, index2word = make_indices(vocab)
+    
+    # quick exploratory data analysis for report
+    print("========== Exploratory data analysis ==========")
+    print("Number of training examples: {}".format(len(train_data)))
+    print("Number of validation examples: {}".format(len(valid_data)))
+    print("Vocabulary size: {}".format(len(vocab)))
+    print("1 star reviews in training data: {}".format(len([1 for _, y in train_data if y == 0])))
+    print("2 star reviews in training data: {}".format(len([1 for _, y in train_data if y == 1])))
+    print("3 star reviews in training data: {}".format(len([1 for _, y in train_data if y == 2])))
+    print("4 star reviews in training data: {}".format(len([1 for _, y in train_data if y == 3])))
+    print("5 star reviews in training data: {}".format(len([1 for _, y in train_data if y == 4])))
+    print("1 star reviews in validation data: {}".format(len([1 for _, y in valid_data if y == 0])))
+    print("2 star reviews in validation data: {}".format(len([1 for _, y in valid_data if y == 1])))
+    print("3 star reviews in validation data: {}".format(len([1 for _, y in valid_data if y == 2])))
+    print("4 star reviews in validation data: {}".format(len([1 for _, y in valid_data if y == 3])))
+    print("5 star reviews in validation data: {}".format(len([1 for _, y in valid_data if y == 4])))
+    print("Average training review length: {}".format(np.mean([len(review) for review, _ in train_data])))
+    print("Average validation review length: {}".format(np.mean([len(review) for review, _ in valid_data])))
 
+    # vectorize data
     print("========== Vectorizing data ==========")
     train_data = convert_to_vector_representation(train_data, word2index)
     valid_data = convert_to_vector_representation(valid_data, word2index)
@@ -127,11 +149,18 @@ if __name__ == "__main__":
 
     model = FFNN(input_dim = len(vocab), h = args.hidden_dim)
     optimizer = optim.SGD(model.parameters(),lr=0.01, momentum=0.9)
+    predicted_valid_labels = [] # save predicted labels for validation data
+    true_valid_labels = [] # save true labels for validation data
+    training_accuracies = [] # save training accuracies for each epoch
+    validation_accuracies = [] # save validation accuracies for each epoch
+    training_losses = [] # save training losses for each epoch
+    validation_losses = [] # save validation losses for each epoch
     print("========== Training for {} epochs ==========".format(args.epochs))
     for epoch in range(args.epochs):
         model.train()
         optimizer.zero_grad()
         loss = None
+        epoch_loss = 0
         correct = 0
         total = 0
         start_time = time.time()
@@ -154,10 +183,15 @@ if __name__ == "__main__":
                 else:
                     loss += example_loss
             loss = loss / minibatch_size
+            epoch_loss += loss.item()
             loss.backward()
             optimizer.step()
         print("Training completed for epoch {}".format(epoch + 1))
-        print("Training accuracy for epoch {}: {}".format(epoch + 1, correct / total))
+        training_accuracy = correct / total
+        training_accuracies.append(training_accuracy)
+        epoch_loss = epoch_loss / (N // minibatch_size)
+        training_losses.append(epoch_loss)
+        print("Training accuracy for epoch {}: {}".format(epoch + 1, training_accuracy))
         print("Training time for this epoch: {}".format(time.time() - start_time))
 
 
@@ -175,6 +209,10 @@ if __name__ == "__main__":
                 input_vector, gold_label = valid_data[minibatch_index * minibatch_size + example_index]
                 predicted_vector = model(input_vector)
                 predicted_label = torch.argmax(predicted_vector)
+                # save final predicted and true labels for confusion matrix
+                if epoch == args.epochs - 1:
+                    true_valid_labels.append(gold_label) # save true label
+                    predicted_valid_labels.append(predicted_label) # save prediction
                 correct += int(predicted_label == gold_label)
                 total += 1
                 example_loss = model.compute_Loss(predicted_vector.view(1,-1), torch.tensor([gold_label]))
@@ -184,8 +222,50 @@ if __name__ == "__main__":
                     loss += example_loss
             loss = loss / minibatch_size
         print("Validation completed for epoch {}".format(epoch + 1))
-        print("Validation accuracy for epoch {}: {}".format(epoch + 1, correct / total))
+        validation_accuracy = correct / total
+        validation_accuracies.append(validation_accuracy)
+        print("Validation accuracy for epoch {}: {}".format(epoch + 1, validation_accuracy))
         print("Validation time for this epoch: {}".format(time.time() - start_time))
 
-    # write out to results/test.out
+        # write out training and validation restuls to results/test.out
+        if not os.path.exists("results"):
+            os.makedirs("results")
+        if not os.path.exists("results/test.out"):
+            f = open("results/test.out", "w")
+        else:
+            f = open("results/test.out", "a")
+        f.write("Running with hidden dimension {} and {} epochs".format(args.hidden_dim, args.epochs))
+        f.write("\n")
+        f.write("Training accuracy for epoch {}: {}".format(epoch + 1, training_accuracy))
+        f.write("\n")
+        f.write("Validation accuracy for epoch {}: {}".format(epoch + 1, validation_accuracy))
+        f.write("\n")
+        f.write("\n")
+        f.close()
+        
+    # confusion matrix for validation results
+    print("========== Confusion matrix ==========")
+    cm = confusion_matrix(true_valid_labels, predicted_valid_labels)
+    
+    plt.figure(figsize=(10,7))
+    sns.heatmap(cm, annot=True, fmt='d')
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Confusion Matrix')
+    plt.savefig("results/confusion_matrix.png")
+    plt.show()
+    
+    # plot learning curve for accuracy
+    print("========== Accuracy learning curve ==========")
+    plt.figure(figsize=(12, 6))
+    plt.plot(training_accuracies, label='Training Accuracy')
+    plt.plot(validation_accuracies, label='Validation Accuracy', linestyle='--')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.title('Accuracy Curve (Training vs Validation)')
+    plt.legend()
+    plt.savefig("results/accuracy_curve.png")
+    plt.show()
+        
+    
     
