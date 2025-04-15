@@ -12,6 +12,9 @@ import json
 import string
 from argparse import ArgumentParser
 import pickle
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 unk = '<UNK>'
 # Consult the PyTorch documentation for information on the functions used below:
@@ -20,7 +23,7 @@ class RNN(nn.Module):
     def __init__(self, input_dim, h):  # Add relevant parameters
         super(RNN, self).__init__()
         self.h = h
-        self.numOfLayer = 1
+        self.numOfLayer = 1 # played around with this value
         self.rnn = nn.RNN(input_dim, h, self.numOfLayer, nonlinearity='tanh')
         self.W = nn.Linear(h, 5)
         self.softmax = nn.LogSoftmax(dim=1)
@@ -31,12 +34,16 @@ class RNN(nn.Module):
 
     def forward(self, inputs):
         # [to fill] obtain hidden layer representation (https://pytorch.org/docs/stable/generated/torch.nn.RNN.html)
-        _, hidden = 
+        output, hidden = self.rnn(inputs)
+        
         # [to fill] obtain output layer representations
+        output_representation = self.W(output)
 
-        # [to fill] sum over output 
+        # [to fill] sum over output
+        output = torch.sum(output_representation, dim=0)
 
         # [to fill] obtain probability dist.
+        predicted_vector = self.softmax(output)
 
         return predicted_vector
 
@@ -79,9 +86,11 @@ if __name__ == "__main__":
     print("========== Vectorizing data ==========")
     model = RNN(50, args.hidden_dim)  # Fill in parameters
     # optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
-    word_embedding = pickle.load(open('./word_embedding.pkl', 'rb'))
-
+    optimizer = optim.Adam(model.parameters(), lr=0.001) # decreased learning rate
+    word_embedding = pickle.load(open('./data_embedding/word_embedding.pkl', 'rb')) # edited to match project directory
+    predicted_valid_labels = [] # save predicted labels for validation data
+    true_valid_labels = [] # save true labels for validation data
+    
     stopping_condition = False
     epoch = 0
 
@@ -159,6 +168,8 @@ if __name__ == "__main__":
             vectors = torch.tensor(vectors).view(len(vectors), 1, -1)
             output = model(vectors)
             predicted_label = torch.argmax(output)
+            true_valid_labels.append(gold_label) # save true label
+            predicted_valid_labels.append(predicted_label) # save prediction
             correct += int(predicted_label == gold_label)
             total += 1
             # print(predicted_label, gold_label)
@@ -173,6 +184,19 @@ if __name__ == "__main__":
         else:
             last_validation_accuracy = validation_accuracy
             last_train_accuracy = trainning_accuracy
+
+        # get confusion matrix for each epoch in validation data
+        # so that I can see results for the best epoch
+        print("========== Confusion matrix ==========")
+        cm = confusion_matrix(true_valid_labels, predicted_valid_labels)
+        
+        plt.figure(figsize=(10,7))
+        sns.heatmap(cm, annot=True, fmt='d')
+        plt.xlabel('Predicted')
+        plt.ylabel('True')
+        plt.title('Confusion Matrix')
+        plt.savefig("results/confusion_matrix_rnn{epoch}.png")
+        plt.show()
 
         epoch += 1
 

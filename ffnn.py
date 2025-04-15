@@ -196,6 +196,7 @@ if __name__ == "__main__":
 
 
         loss = None
+        epoch_loss = 0
         correct = 0
         total = 0
         start_time = time.time()
@@ -221,9 +222,12 @@ if __name__ == "__main__":
                 else:
                     loss += example_loss
             loss = loss / minibatch_size
+            epoch_loss += loss.item()
         print("Validation completed for epoch {}".format(epoch + 1))
         validation_accuracy = correct / total
         validation_accuracies.append(validation_accuracy)
+        epoch_loss = epoch_loss / (N // minibatch_size)
+        validation_losses.append(epoch_loss)
         print("Validation accuracy for epoch {}: {}".format(epoch + 1, validation_accuracy))
         print("Validation time for this epoch: {}".format(time.time() - start_time))
 
@@ -265,6 +269,18 @@ if __name__ == "__main__":
     plt.title('Accuracy Curve (Training vs Validation)')
     plt.legend()
     plt.savefig("results/accuracy_curve.png")
+    plt.show()
+    
+    # plot learning curve for loss
+    print("========== Loss learning curve ==========")
+    plt.figure(figsize=(12, 6))
+    plt.plot(training_losses, label='Training Loss')
+    plt.plot(validation_losses, label='Validation Loss', linestyle='--')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Loss Curve (Training vs Validation)')
+    plt.legend()
+    plt.savefig("results/loss_curve.png")
     plt.show()
         
     
